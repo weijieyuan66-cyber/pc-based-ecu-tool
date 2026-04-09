@@ -29,6 +29,7 @@ Out of scope (do not add):
 
 import can
 import datetime
+import time
 import logging
 from typing import Any, Optional
 
@@ -125,6 +126,59 @@ class CANReceiver:
         changing any callers.
         """
         self.logger.info("CANReceiver.stop() called.")
+
+
+    def collect(
+        self,
+        expected_count: int,
+        timeout_s: float = 5.0,
+    ) -> list:
+        """
+        Collect up to *expected_count* frames within *timeout_s* seconds.
+
+        Unlike start(), this method returns as soon as *expected_count* frames
+        have arrived or the overall timeout elapses — whichever comes first.
+        It is used by the self-test runner (core/self_test.py) and the UI
+        backend so they can obtain a list of received frames programmatically.
+
+        Parameters
+        ----------
+        expected_count : int
+            Stop collecting early when this many frames have been received.
+        timeout_s : float
+            Maximum wall-clock time to wait for frames.
+
+        Returns
+        -------
+        list of can.Message
+        """
+        received: list = []
+        deadline = time.monotonic() + timeout_s
+
+        self.logger.info(
+            "Collecting up to %d frame(s) within %.1f s ...",
+            expected_count, timeout_s,
+        )
+
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            # Poll in small slices so we don't overshoot the deadline
+            poll = min(self._rx_timeout_s, remaining, 0.5)
+            msg = self.bus.recv(timeout=poll)
+            if msg is None:
+                continue
+            received.append(msg)
+            self._print_frame(msg)
+            if len(received) >= expected_count:
+                break
+
+        self.logger.info(
+            "Collect done: %d / %d frame(s) received.",
+            len(received), expected_count,
+        )
+        return received
 
     # ------------------------------------------------------------------
     # Private helpers

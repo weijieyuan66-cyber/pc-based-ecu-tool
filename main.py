@@ -5,13 +5,14 @@ Entry point for the PC-based ECU communication tool.
 
 Responsibilities (orchestration only)
 --------------------------------------
-- Load configuration from config/settings.example.json
-- Create the shared python-can Bus (single call site for hardware init)
-- Instantiate CANTransmitter and CANReceiver, passing them the open bus
-- In self-test mode, build the test frame list and delegate sending to
-  CANTransmitter running in a background daemon thread
-- Run the blocking CAN receive loop in the main thread
-- Shut down the bus cleanly on exit
+- Parse --ui flag: if present, launch the Tkinter desktop UI (ui/app.py).
+- Load configuration from config/settings.example.json.
+- Create the shared python-can Bus (single call site for hardware init).
+- In self_test_only mode, delegate to run_virtual_self_test() in
+  core/self_test.py and print the results summary to the console.
+- For other modes (e.g. real-hardware monitoring), run the blocking
+  CANReceiver.start() loop.
+- Shut down the bus cleanly on exit.
 
 How to switch to real hardware later
 --------------------------------------
@@ -27,17 +28,16 @@ Out of scope (do not add here):
 - Any high-risk ECU control
 """
 
+import argparse
 import json
 import logging
-import threading
-import time
 from pathlib import Path
 
 import can
 
 from app_logging.logger import setup_logger
 from core.receiver import CANReceiver
-from core.transmitter import CANTransmitter
+from core.self_test import SELF_TEST_FRAMES, run_virtual_self_test
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +67,11 @@ def create_bus(config: dict, logger: logging.Logger) -> can.BusABC:
     are fully isolated here.
 
     Supported interfaces (config-driven, no code change needed):
-        virtual   — python-can in-process bus (current phase)
-        pcan      — PEAK PCAN-USB
-        kvaser    — Kvaser adapters
-        vector    — Vector hardware
-        socketcan — Linux SocketCAN
+        virtual   -- python-can in-process bus (current phase)
+        pcan      -- PEAK PCAN-USB
+        kvaser    -- Kvaser adapters
+        vector    -- Vector hardware
+        socketcan -- Linux SocketCAN
     """
     interface = config["interface"]
     channel   = config["channel"]
@@ -86,8 +86,10 @@ def create_bus(config: dict, logger: logging.Logger) -> can.BusABC:
     if fd:
         kwargs["fd"] = True
 
-    logger.info("Opening CAN bus | interface=%s  channel=%s  bitrate=%d  fd=%s",
-                interface, channel, bitrate, fd)
+    logger.info(
+        "Opening CAN bus | interface=%s  channel=%s  bitrate=%d  fd=%s",
+        interface, channel, bitrate, fd,
+    )
 
     bus = can.Bus(**kwargs)
     logger.info("Bus opened: %s", bus)
@@ -95,26 +97,38 @@ def create_bus(config: dict, logger: logging.Logger) -> can.BusABC:
 
 
 # ---------------------------------------------------------------------------
-# Virtual self-test frames
+# CLI self-test result printer
 # ---------------------------------------------------------------------------
 
-SELF_TEST_FRAMES = [
-    can.Message(
-        arbitration_id=0x7E8,
-        data=[0x02, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00],
-        is_extended_id=False,
-    ),
-    can.Message(
-        arbitration_id=0x123,
-        data=[0xDE, 0xAD, 0xBE, 0xEF],
-        is_extended_id=False,
-    ),
-    can.Message(
-        arbitration_id=0x18DA00F1,
-        data=[0x01, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        is_extended_id=True,
-    ),
-]
+def _print_self_test_results(result) -> None:
+    """Print a formatted self-test summary to stdout."""
+    print()
+    print("=" * 64)
+    print("  Self-Test Results")
+    print("=" * 64)
+    print(f"  {'Timestamp':<16} {'CAN ID':<10} {'DLC':<5} Data (hex)")
+    print("-" * 64)
+    for msg in result.received_frames:
+        import datetime
+        ts = msg.timestamp if msg.timestamp is not None else datetime.datetime.now().timestamp()
+        wall = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:-3]
+        id_str = (
+            f"{msg.arbitration_id:08X}" if msg.is_extended_id
+            else f"{msg.arbitration_id:03X}"
+        )
+        data_hex = " ".join(f"{b:02X}" for b in msg.data)
+        flags = " [EXT]" if msg.is_extended_id else ""
+        print(f"  {wall:<16} {id_str:<10} {msg.dlc:<5} {data_hex}{flags}")
+    print("-" * 64)
+    outcome = "PASS" if result.passed else "FAIL"
+    print(f"  Result  : {outcome}")
+    print(f"  Sent    : {result.sent_count}")
+    print(f"  Received: {len(result.received_frames)}")
+    print("=" * 64)
+    print()
+    for line in result.log_lines:
+        print(f"  {line}")
+    print()
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +136,29 @@ SELF_TEST_FRAMES = [
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="PC-based ECU Communication Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Launch the graphical Tkinter desktop UI instead of the CLI.",
+    )
+    args = parser.parse_args()
+
+    # ── UI mode ─────────────────────────────────────────────────────────
+    if args.ui:
+        from ui.app import launch
+        launch()
+        return
+
+    # ── CLI mode ─────────────────────────────────────────────────────────
     config = load_config()
     logger = setup_logger()
 
     logger.info("=" * 50)
-    logger.info("PC-based ECU Communication Tool — starting")
+    logger.info("PC-based ECU Communication Tool -- starting")
     logger.info("Mode      : %s", config.get("app_mode", "unknown"))
     logger.info("Interface : %s", config.get("interface"))
     logger.info("Channel   : %s", config.get("channel"))
@@ -135,57 +167,17 @@ def main() -> None:
     app_mode  = config.get("app_mode", "")
     interface = config.get("interface", "")
 
+    # ── Virtual self-test: use the shared runner, then print results ─────
+    if app_mode == "self_test_only" and interface == "virtual":
+        result = run_virtual_self_test(config, logger)
+        _print_self_test_results(result)
+        return
+
+    # ── Other modes: open bus and run the blocking receive loop ──────────
     rx_bus = None
-    tx_bus = None
     try:
         rx_bus = create_bus(config, logger)
-
-        # python-can virtual bus: messages sent on bus_A are delivered to all
-        # OTHER bus instances on the same channel — NOT looped back to bus_A.
-        # For the virtual self-test we therefore open a separate TX bus so the
-        # receiver sees the injected frames. For real hardware a single shared
-        # bus object handles both directions, so tx_bus stays None.
-        if app_mode == "self_test_only" and interface == "virtual":
-            tx_bus = can.Bus(
-                interface="virtual",
-                channel=config.get("channel", "test_channel"),
-            )
-            logger.debug("Opened dedicated TX bus for virtual self-test.")
-
-        transmitter = CANTransmitter(
-            bus=tx_bus if tx_bus is not None else rx_bus,
-            config=config,
-            logger=logger,
-        )
         receiver = CANReceiver(bus=rx_bus, config=config, logger=logger)
-
-        # ── Virtual self-test: inject frames so the RX loop has traffic ──
-        if app_mode == "self_test_only" and interface == "virtual":
-            try:
-                interval_s = float(config.get("tx_frame_interval_s", 0.1))
-            except (TypeError, ValueError):
-                logger.warning(
-                    "Invalid tx_frame_interval_s in config; using default 0.1 s."
-                )
-                interval_s = 0.1
-            logger.info(
-                "Self-test mode: scheduling %d test frame(s) via background thread.",
-                len(SELF_TEST_FRAMES),
-            )
-
-            def _run_self_test() -> None:
-                time.sleep(0.3)  # Give the RX loop time to start
-                transmitter.send_frames(SELF_TEST_FRAMES, interval_s=interval_s)
-
-            injector = threading.Thread(
-                target=_run_self_test,
-                daemon=True,
-                name="frame-injector",
-            )
-            injector.start()
-
-        # ── Blocking receive loop (main thread) ──
-        # Returns only on Ctrl+C
         receiver.start()
 
     except FileNotFoundError as exc:
@@ -195,9 +187,6 @@ def main() -> None:
     except Exception as exc:
         logger.exception("Unexpected error: %s", exc)
     finally:
-        if tx_bus is not None:
-            tx_bus.shutdown()
-            logger.debug("TX bus shut down.")
         if rx_bus is not None:
             rx_bus.shutdown()
             logger.info("CAN bus shut down.")
@@ -206,4 +195,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
