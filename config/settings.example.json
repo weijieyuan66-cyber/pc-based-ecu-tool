@@ -1,0 +1,8 @@
+{
+  "interface": "socketcan",
+  "channel": "CAN0",
+  "bitrate": 500000,
+  "fd_enabled": false,
+  "app_mode": "bench_test_only",
+  "notes": "Initial configuration example for raw CAN receive/transmit MVP"
+}
