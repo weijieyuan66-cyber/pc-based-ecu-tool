@@ -4,6 +4,7 @@
   "bitrate": 500000,
   "fd_enabled": false,
   "rx_timeout_s": 1.0,
+  "tx_frame_interval_s": 0.1,
   "app_mode": "self_test_only",
   "notes": "Virtual self-test configuration. To switch to real hardware, change interface and channel only."
 }
