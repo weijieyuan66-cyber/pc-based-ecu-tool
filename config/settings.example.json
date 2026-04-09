@@ -1,8 +1,9 @@
 {
-  "interface": "socketcan",
-  "channel": "CAN0",
+  "interface": "virtual",
+  "channel": "test_channel",
   "bitrate": 500000,
   "fd_enabled": false,
-  "app_mode": "bench_test_only",
-  "notes": "Initial configuration example for raw CAN receive/transmit MVP"
+  "rx_timeout_s": 1.0,
+  "app_mode": "self_test_only",
+  "notes": "Virtual self-test configuration. To switch to real hardware, change interface and channel only."
 }
