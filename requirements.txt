@@ -1,0 +1,7 @@
+
+---
+
+## 2）`requirements.txt`
+
+```text
+python-can>=4.3.1
