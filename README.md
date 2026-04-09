@@ -4,10 +4,11 @@ A lightweight Python project for **authorized static bench testing only**.
 
 ## Current development phase
 
-**Phase 1 — Virtual self-test (no hardware required)**
+**Phase 2 — Formalized transmitter module (no hardware required)**
 
-The project is currently running in pure-software self-test mode using the
-`python-can` virtual interface. No physical CAN adapter or real ECU is needed.
+The project runs in pure-software self-test mode using the `python-can`
+virtual interface. The transmitter is now a proper module that owns all
+frame-sending logic via a shared bus object — mirroring the receiver pattern.
 
 ## How to run (virtual self-test)
 
@@ -62,15 +63,15 @@ Edit `config/settings.example.json`:
 
 No Python code changes are required.
 
-## MVP scope
+## Status
 
-| Capability                        | Status        |
-|-----------------------------------|---------------|
-| Virtual self-test RX              | ✅ Implemented |
-| Config-driven interface switching | ✅ Implemented |
-| Single-frame TX                   | 🔜 Next step   |
-| TX/RX file logging                | 🔜 Next step   |
-| DBC parsing                       | ⬜ Placeholder  |
+| Capability                        | Status         |
+|-----------------------------------|----------------|
+| Virtual self-test RX              | ✅ Implemented  |
+| Config-driven interface switching | ✅ Implemented  |
+| Single-frame TX (via transmitter) | ✅ Implemented  |
+| TX/RX file logging                | ✅ Implemented  |
+| DBC parsing                       | ⬜ Placeholder   |
 
 ## Out of scope (will not be implemented)
 
@@ -92,13 +93,14 @@ No Python code changes are required.
 
 ```text
 .
-├── main.py                    Entry point
+├── main.py                    Entry point — orchestration only
+│                              (config load, bus factory, thread start)
 ├── requirements.txt
 ├── config/
 │   └── settings.example.json  Interface config (virtual → real by config only)
 ├── core/
 │   ├── receiver.py            Blocking CAN RX loop
-│   └── transmitter.py         TX skeleton (next phase)
+│   └── transmitter.py         CAN TX — send_frame / send_single_frame / send_frames
 ├── app_logging/
 │   └── logger.py              Console + file logger
 ├── dbc/

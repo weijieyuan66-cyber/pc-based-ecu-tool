@@ -3,15 +3,18 @@ main.py
 -------
 Entry point for the PC-based ECU communication tool.
 
-Current phase: virtual self-test only.
-- Loads configuration from config/settings.example.json
-- Opens a python-can virtual bus
-- Injects 3 test frames from a background thread
-- Runs the blocking CAN receive loop in the main thread
-- Shuts down cleanly on Ctrl+C
+Responsibilities (orchestration only)
+--------------------------------------
+- Load configuration from config/settings.example.json
+- Create the shared python-can Bus (single call site for hardware init)
+- Instantiate CANTransmitter and CANReceiver, passing them the open bus
+- In self-test mode, build the test frame list and delegate sending to
+  CANTransmitter running in a background daemon thread
+- Run the blocking CAN receive loop in the main thread
+- Shut down the bus cleanly on exit
 
 How to switch to real hardware later
--------------------------------------
+--------------------------------------
 1. Edit config/settings.example.json:
        "interface": "pcan"          (or "kvaser", "vector", "socketcan")
        "channel":   "PCAN_USBBUS1"  (vendor-specific channel name)
@@ -92,53 +95,26 @@ def create_bus(config: dict, logger: logging.Logger) -> can.BusABC:
 
 
 # ---------------------------------------------------------------------------
-# Virtual self-test injector
+# Virtual self-test frames
 # ---------------------------------------------------------------------------
 
-def _inject_test_frames(channel: str, logger: logging.Logger) -> None:
-    """
-    Push 3 test frames into the virtual bus so the receiver has real traffic.
-
-    Runs in a daemon thread — exits automatically when main thread exits.
-    Only used in self_test_only mode. Remove or ignore for real hardware.
-
-    The injector opens its OWN Bus object on the same virtual channel.
-    python-can virtual buses are shared by channel name within a process,
-    so these frames appear on the receiver's bus immediately.
-    """
-    time.sleep(0.3)  # Brief delay — give the RX loop time to start printing
-
-    try:
-        injector_bus = can.Bus(interface="virtual", channel=channel)
-
-        test_frames = [
-            can.Message(
-                arbitration_id=0x7E8,
-                data=[0x02, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00],
-                is_extended_id=False,
-            ),
-            can.Message(
-                arbitration_id=0x123,
-                data=[0xDE, 0xAD, 0xBE, 0xEF],
-                is_extended_id=False,
-            ),
-            can.Message(
-                arbitration_id=0x18DA00F1,
-                data=[0x01, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-                is_extended_id=True,
-            ),
-        ]
-
-        for i, frame in enumerate(test_frames):
-            injector_bus.send(frame)
-            logger.debug("Injected test frame %d: ID=0x%X", i + 1, frame.arbitration_id)
-            time.sleep(0.1)
-
-        injector_bus.shutdown()
-        logger.info("Test frame injection complete (3 frames sent).")
-
-    except Exception as exc:
-        logger.warning("Test frame injector error: %s", exc)
+SELF_TEST_FRAMES = [
+    can.Message(
+        arbitration_id=0x7E8,
+        data=[0x02, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00],
+        is_extended_id=False,
+    ),
+    can.Message(
+        arbitration_id=0x123,
+        data=[0xDE, 0xAD, 0xBE, 0xEF],
+        is_extended_id=False,
+    ),
+    can.Message(
+        arbitration_id=0x18DA00F1,
+        data=[0x01, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        is_extended_id=True,
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -159,24 +135,50 @@ def main() -> None:
     app_mode  = config.get("app_mode", "")
     interface = config.get("interface", "")
 
-    bus = None
+    rx_bus = None
+    tx_bus = None
     try:
-        bus = create_bus(config, logger)
+        rx_bus = create_bus(config, logger)
 
-        # Receiver: owns the blocking loop, uses the shared bus
-        receiver = CANReceiver(bus=bus, config=config, logger=logger)
+        # python-can virtual bus: messages sent on bus_A are delivered to all
+        # OTHER bus instances on the same channel — NOT looped back to bus_A.
+        # For the virtual self-test we therefore open a separate TX bus so the
+        # receiver sees the injected frames. For real hardware a single shared
+        # bus object handles both directions, so tx_bus stays None.
+        if app_mode == "self_test_only" and interface == "virtual":
+            tx_bus = can.Bus(
+                interface="virtual",
+                channel=config.get("channel", "test_channel"),
+            )
+            logger.debug("Opened dedicated TX bus for virtual self-test.")
 
-        # Transmitter: skeleton only this phase, holds the bus reference
-        # for when send_single_frame() is implemented next
-        transmitter = CANTransmitter(config=config, logger=logger)
+        transmitter = CANTransmitter(
+            bus=tx_bus if tx_bus is not None else rx_bus,
+            config=config,
+            logger=logger,
+        )
+        receiver = CANReceiver(bus=rx_bus, config=config, logger=logger)
 
         # ── Virtual self-test: inject frames so the RX loop has traffic ──
         if app_mode == "self_test_only" and interface == "virtual":
-            logger.info("Self-test mode: injecting 3 test frames via background thread.")
-            channel = config.get("channel", "test_channel")
+            try:
+                interval_s = float(config.get("tx_frame_interval_s", 0.1))
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid tx_frame_interval_s in config; using default 0.1 s."
+                )
+                interval_s = 0.1
+            logger.info(
+                "Self-test mode: scheduling %d test frame(s) via background thread.",
+                len(SELF_TEST_FRAMES),
+            )
+
+            def _run_self_test() -> None:
+                time.sleep(0.3)  # Give the RX loop time to start
+                transmitter.send_frames(SELF_TEST_FRAMES, interval_s=interval_s)
+
             injector = threading.Thread(
-                target=_inject_test_frames,
-                args=(channel, logger),
+                target=_run_self_test,
                 daemon=True,
                 name="frame-injector",
             )
@@ -193,8 +195,11 @@ def main() -> None:
     except Exception as exc:
         logger.exception("Unexpected error: %s", exc)
     finally:
-        if bus is not None:
-            bus.shutdown()
+        if tx_bus is not None:
+            tx_bus.shutdown()
+            logger.debug("TX bus shut down.")
+        if rx_bus is not None:
+            rx_bus.shutdown()
             logger.info("CAN bus shut down.")
         logger.info("Exiting.")
 
