@@ -29,6 +29,7 @@ Out of scope (do not add here):
 """
 
 import argparse
+import datetime
 import json
 import logging
 from pathlib import Path
@@ -109,7 +110,6 @@ def _print_self_test_results(result) -> None:
     print(f"  {'Timestamp':<16} {'CAN ID':<10} {'DLC':<5} Data (hex)")
     print("-" * 64)
     for msg in result.received_frames:
-        import datetime
         ts = msg.timestamp if msg.timestamp is not None else datetime.datetime.now().timestamp()
         wall = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:-3]
         id_str = (

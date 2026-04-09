@@ -106,8 +106,8 @@ def run_virtual_self_test(
     ----------
     config : dict
         Application config dict.  Relevant keys:
-          \"channel\"             — virtual channel name (default \"test_channel\")
-          \"tx_frame_interval_s\" — inter-frame delay in seconds (default 0.1)
+          'channel'             -- virtual channel name (default 'test_channel')
+          'tx_frame_interval_s' -- inter-frame delay in seconds (default 0.1)
     logger : logging.Logger
         Diagnostic logger.
 

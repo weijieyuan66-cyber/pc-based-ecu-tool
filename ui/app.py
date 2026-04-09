@@ -29,7 +29,7 @@ from app_logging.logger import setup_logger
 from core.self_test import SelfTestResult, run_virtual_self_test
 from main import load_config
 
-_CONFIG_PATH = "config/settings.example.json"
+DEFAULT_CONFIG_PATH = "config/settings.example.json"
 
 
 class SelfTestApp(tk.Tk):
@@ -43,10 +43,10 @@ class SelfTestApp(tk.Tk):
 
         self._logger = setup_logger("ecu_tool_ui")
         try:
-            self._config = load_config(_CONFIG_PATH)
+            self._config = load_config(DEFAULT_CONFIG_PATH)
         except FileNotFoundError as exc:
             self._config = {}
-            print(f"[WARNING] Config not found: {exc}")
+            self._logger.warning("Config not found: %s", exc)
 
         self._running = False
         self._build_ui()
@@ -210,7 +210,7 @@ class SelfTestApp(tk.Tk):
     # Private helpers                                                       #
     # ------------------------------------------------------------------ #
 
-    def _add_frame_row(self, msg: object) -> None:
+    def _add_frame_row(self, msg: "can.Message") -> None:
         """Insert one received CAN frame into the Treeview table."""
         ts = getattr(msg, "timestamp", None)
         if ts is None:
