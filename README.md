@@ -2,26 +2,83 @@
 
 A lightweight Python project for **authorized static bench testing only**.
 
-## Current MVP scope
+## Current development phase
 
-This project currently targets only the following basic capabilities:
+**Phase 1 — Virtual self-test (no hardware required)**
 
-- Receive raw CAN / CAN FD messages from an ECU
-- Send raw single-frame CAN / CAN FD messages from a PC to an ECU
-- Print basic TX/RX logs
-- Keep the structure extensible for future additions such as DBC parsing
+The project is currently running in pure-software self-test mode using the
+`python-can` virtual interface. No physical CAN adapter or real ECU is needed.
 
-## Current limitations
+## How to run (virtual self-test)
 
-This project does **not** implement:
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Run (uses config/settings.example.json automatically)
+python main.py
+
+# 3. Stop
+Ctrl+C
+```
+
+Expected output:
+
+```
+============================================================
+  CAN Receiver — listening for frames
+  Interface : virtual
+  Channel   : test_channel
+  Mode      : self_test_only
+============================================================
+  Timestamp        ID       DLC  Data (hex)
+------------------------------------------------------------
+[RX] 14:22:05.123  ID=7E8       DLC=8  Data=02 10 01 00 00 00 00 00
+[RX] 14:22:05.234  ID=123       DLC=4  Data=DE AD BE EF
+[RX] 14:22:05.345  ID=18DA00F1  DLC=8  Data=01 3E 00 00 00 00 00 00 [EXT]
+------------------------------------------------------------
+  Stopped by user. Total frames received: 3
+============================================================
+```
+
+## How to switch to real hardware
+
+Edit `config/settings.example.json`:
+
+```json
+{
+  "interface": "pcan",
+  "channel":   "PCAN_USBBUS1",
+  "bitrate":   500000
+}
+```
+
+| Hardware       | `interface`  | `channel` example  |
+|----------------|--------------|--------------------|
+| PEAK PCAN-USB  | `pcan`       | `PCAN_USBBUS1`     |
+| Kvaser         | `kvaser`     | `0`                |
+| Vector         | `vector`     | `0`                |
+| SocketCAN      | `socketcan`  | `can0`             |
+
+No Python code changes are required.
+
+## MVP scope
+
+| Capability                        | Status        |
+|-----------------------------------|---------------|
+| Virtual self-test RX              | ✅ Implemented |
+| Config-driven interface switching | ✅ Implemented |
+| Single-frame TX                   | 🔜 Next step   |
+| TX/RX file logging                | 🔜 Next step   |
+| DBC parsing                       | ⬜ Placeholder  |
+
+## Out of scope (will not be implemented)
 
 - Full UDS / ISO-TP diagnostics
-- Flashing / programming / bootloader features
+- Flashing / programming / bootloader
 - Security Access
-- WriteDataByIdentifier
-- RoutineControl
-- ECUReset
-- Coding / calibration writing
+- WriteDataByIdentifier / RoutineControl / ECUReset
+- Coding or calibration writing
 - Any high-risk ECU control capability
 
 ## Intended use
@@ -31,22 +88,21 @@ This project does **not** implement:
 - Not for real vehicle use
 - Not for production use
 
-## Initial project structure
+## Project structure
 
 ```text
 .
-├─ README.md
-├─ requirements.txt
-├─ .gitignore
-├─ main.py
-├─ core/
-│  ├─ __init__.py
-│  ├─ receiver.py
-│  └─ transmitter.py
-├─ app_logging/
-│  ├─ __init__.py
-│  └─ logger.py
-├─ config/
-│  └─ settings.example.json
-└─ dbc/
-   └─ .gitkeep
+├── main.py                    Entry point
+├── requirements.txt
+├── config/
+│   └── settings.example.json  Interface config (virtual → real by config only)
+├── core/
+│   ├── receiver.py            Blocking CAN RX loop
+│   └── transmitter.py         TX skeleton (next phase)
+├── app_logging/
+│   └── logger.py              Console + file logger
+├── dbc/
+│   └── .gitkeep               Placeholder for future DBC parser
+└── logs/                      Created at runtime
+```
+
