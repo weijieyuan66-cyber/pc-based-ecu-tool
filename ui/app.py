@@ -7,10 +7,12 @@ Layout (top to bottom)
 -----------------------
   Backend bar    -- backend selector dropdown + Connect button + status badge
   Action bar     -- Run Self-Test button (virtual only) + status label
-  Notebook       -- three tabs:
+  Notebook       -- four tabs:
                     Tab 1 "Raw Frames"      — same treeview as before
                     Tab 2 "Decoded Signals" — J1939 / DBC decoded info
                     Tab 3 "Fault Hints"     — triggered rule alerts
+                    Tab 4 "Analysis"        — AI integration reservation
+                                              (placeholders only; AI disabled)
   Result badge   -- PASS / FAIL / ERROR (large, colour-coded)
   Log area       -- scrollable read-only log
 
@@ -23,6 +25,8 @@ Design constraints
 - Self-test is available only in virtual mode.
 - Decode + rule pipelines run on every received frame regardless of backend.
 - Tkinter is stdlib — no extra UI dependency needed.
+- The Analysis tab is a UI reservation for future AI integration.
+  No AI model connection is implemented.  All analysis buttons are disabled.
 """
 
 import datetime
@@ -32,6 +36,8 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 from typing import Optional
 
+from analysis.actions import AnalysisState
+from analysis.context import AnalysisContext, SelectedObjectContext
 from app_logging.logger import setup_logger
 from backend.factory import BackendFactory
 from core.self_test import SelfTestResult, run_virtual_self_test
@@ -76,8 +82,17 @@ class ECUToolApp(tk.Tk):
         self._backend = None
         self._running = False
 
+        # ── analysis reservation state ───────────────────────────────────
+        # These counters are updated on every processed frame so that the
+        # Analysis tab always shows an up-to-date context snapshot.
+        self._analysis_state = AnalysisState.DISABLED
+        self._analysis_frame_count = 0
+        self._analysis_decoded_count = 0
+        self._analysis_fault_count = 0
+
         self._build_ui()
         self._sync_backend_ui()
+        self._update_analysis_tab()
 
     # ================================================================== #
     # UI construction                                                       #
@@ -180,13 +195,16 @@ class ECUToolApp(tk.Tk):
         self._tab_raw = tk.Frame(nb)
         self._tab_decoded = tk.Frame(nb)
         self._tab_faults = tk.Frame(nb)
+        self._tab_analysis = tk.Frame(nb)
         nb.add(self._tab_raw, text="Raw Frames")
         nb.add(self._tab_decoded, text="Decoded Signals")
         nb.add(self._tab_faults, text="Fault Hints")
+        nb.add(self._tab_analysis, text="Analysis")
 
         self._build_raw_tab()
         self._build_decoded_tab()
         self._build_faults_tab()
+        self._build_analysis_tab()
 
         # ── PASS / FAIL badge ────────────────────────────────────────────
         self._lbl_result = tk.Label(
@@ -272,6 +290,136 @@ class ECUToolApp(tk.Tk):
         self._tree_faults.configure(yscrollcommand=vsb.set)
         self._tree_faults.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _build_analysis_tab(self) -> None:
+        """
+        Build the Analysis tab — AI integration reservation (placeholders only).
+
+        All interactive elements are disabled.  No AI model is connected.
+        This tab is intentionally minimal; a full chat / report panel will be
+        added in a future release once AI integration is implemented.
+        """
+        pad = {"padx": 10, "pady": 4}
+
+        # ── AI status row ────────────────────────────────────────────────
+        status_row = tk.Frame(self._tab_analysis, bd=1, relief=tk.GROOVE)
+        status_row.pack(fill=tk.X, **pad)
+
+        tk.Label(
+            status_row,
+            text="AI Status:",
+            font=("TkDefaultFont", 10, "bold"),
+        ).pack(side=tk.LEFT, padx=(8, 4), pady=6)
+
+        self._lbl_ai_status = tk.Label(
+            status_row,
+            text="⬤  AI disabled — placeholder only",
+            font=("Courier", 9),
+            fg="#888",
+            anchor="w",
+        )
+        self._lbl_ai_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=6)
+
+        # ── Analysis context status row ──────────────────────────────────
+        ctx_row = tk.Frame(self._tab_analysis, bd=1, relief=tk.GROOVE)
+        ctx_row.pack(fill=tk.X, **pad)
+
+        tk.Label(
+            ctx_row,
+            text="Context:",
+            font=("TkDefaultFont", 10, "bold"),
+        ).pack(side=tk.LEFT, padx=(8, 4), pady=6)
+
+        self._lbl_analysis_ctx = tk.Label(
+            ctx_row,
+            text="frames: 0   decoded: 0   faults: 0",
+            font=("Courier", 9),
+            anchor="w",
+            fg="#555",
+        )
+        self._lbl_analysis_ctx.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=6)
+
+        # ── Selected object info row ─────────────────────────────────────
+        sel_row = tk.Frame(self._tab_analysis, bd=1, relief=tk.GROOVE)
+        sel_row.pack(fill=tk.X, **pad)
+
+        tk.Label(
+            sel_row,
+            text="Selected:",
+            font=("TkDefaultFont", 10, "bold"),
+        ).pack(side=tk.LEFT, padx=(8, 4), pady=6)
+
+        self._lbl_selected_obj = tk.Label(
+            sel_row,
+            text="(nothing selected)",
+            font=("Courier", 9),
+            anchor="w",
+            fg="#555",
+        )
+        self._lbl_selected_obj.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=6)
+
+        # ── Disabled action buttons ──────────────────────────────────────
+        btn_row = tk.Frame(self._tab_analysis)
+        btn_row.pack(fill=tk.X, **pad)
+
+        for label in (
+            "Analyze Current Session",
+            "Explain Selected Fault",
+            "Generate Report",
+        ):
+            tk.Button(
+                btn_row,
+                text=label,
+                state=tk.DISABLED,
+                font=("TkDefaultFont", 10),
+                width=24,
+            ).pack(side=tk.LEFT, padx=(0, 8), pady=4)
+
+        tk.Label(
+            btn_row,
+            text="(buttons enabled when AI is configured)",
+            font=("TkDefaultFont", 8),
+            fg="#999",
+        ).pack(side=tk.LEFT, padx=4)
+
+        # ── Analysis output area ─────────────────────────────────────────
+        tk.Label(
+            self._tab_analysis,
+            text="Analysis Output",
+            anchor="w",
+            font=("TkDefaultFont", 9, "bold"),
+        ).pack(fill=tk.X, padx=10, pady=(8, 0))
+
+        self._analysis_output = scrolledtext.ScrolledText(
+            self._tab_analysis,
+            height=10,
+            state=tk.DISABLED,
+            font=("Courier", 9),
+            bg="#F5F5F5",
+            fg="#555",
+        )
+        self._analysis_output.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+        self._set_analysis_output(
+            "Analysis output will appear here.\n\n"
+            "AI integration is not yet implemented.\n"
+            "This panel is reserved for a future release."
+        )
+
+    def _set_analysis_output(self, text: str) -> None:
+        """Replace the contents of the analysis output area."""
+        self._analysis_output.config(state=tk.NORMAL)
+        self._analysis_output.delete("1.0", tk.END)
+        self._analysis_output.insert(tk.END, text)
+        self._analysis_output.config(state=tk.DISABLED)
+
+    def _update_analysis_tab(self) -> None:
+        """Refresh the dynamic labels in the Analysis tab from current state."""
+        ctx_text = (
+            f"frames: {self._analysis_frame_count}   "
+            f"decoded: {self._analysis_decoded_count}   "
+            f"faults: {self._analysis_fault_count}"
+        )
+        self._lbl_analysis_ctx.config(text=ctx_text)
 
     # ================================================================== #
     # Backend connection                                                    #
@@ -380,6 +528,12 @@ class ECUToolApp(tk.Tk):
             for row in tree.get_children():
                 tree.delete(row)
 
+        # Reset analysis context counters for the new run
+        self._analysis_frame_count = 0
+        self._analysis_decoded_count = 0
+        self._analysis_fault_count = 0
+        self._update_analysis_tab()
+
         self._log_clear()
         self._log_append("Starting virtual self-test ...")
 
@@ -446,6 +600,13 @@ class ECUToolApp(tk.Tk):
         self._add_decoded_rows(frame)
         for hint in hints:
             self._add_fault_row(hint)
+
+        # Keep analysis context counters up to date
+        self._analysis_frame_count += 1
+        if frame.signals or frame.pgn is not None:
+            self._analysis_decoded_count += 1
+        self._analysis_fault_count += len(hints)
+        self._update_analysis_tab()
 
     # ================================================================== #
     # Tab row builders                                                      #
