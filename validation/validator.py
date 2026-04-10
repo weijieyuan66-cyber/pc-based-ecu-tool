@@ -81,7 +81,7 @@ class ExpectationValidator:
         self._last_ts: Dict[int, float] = {}
         # Accumulates all per-frame deviations; finalize() appends post-session ones.
         self._deviations: List[DeviationEvent] = []
-        self._finalised = False
+        self._finalized = False
 
     # ------------------------------------------------------------------ #
     # Public API                                                            #
@@ -98,7 +98,7 @@ class ExpectationValidator:
             self._seen[mid] = False
         self._last_ts.clear()
         self._deviations.clear()
-        self._finalised = False
+        self._finalized = False
 
     def feed(self, frame: DecodedFrame) -> List[DeviationEvent]:
         """
@@ -235,7 +235,7 @@ class ExpectationValidator:
         with respect to the frame stream, but missing-message events will
         not be duplicated on repeat calls).
         """
-        if not self._finalised:
+        if not self._finalized:
             for mid, seen in self._seen.items():
                 if not seen:
                     msg_spec = self._specs_by_id[mid]
@@ -250,7 +250,7 @@ class ExpectationValidator:
                         ),
                         detail={"message_id": mid},
                     ))
-            self._finalised = True
+            self._finalized = True
 
         by_type: Dict[str, int] = {}
         for evt in self._deviations:
