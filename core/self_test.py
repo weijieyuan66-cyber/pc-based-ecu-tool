@@ -118,7 +118,11 @@ def run_virtual_self_test(
     result = SelfTestResult(sent_count=len(SELF_TEST_FRAMES))
     log: List[str] = []
 
-    channel = config.get("channel", "test_channel")
+    # Support both new (backends.virtual.channel) and old (channel) config formats
+    channel = (
+        config.get("backends", {}).get("virtual", {}).get("channel")
+        or config.get("channel", "test_channel")
+    )
     try:
         interval_s = float(config.get("tx_frame_interval_s", 0.1))
     except (TypeError, ValueError):
