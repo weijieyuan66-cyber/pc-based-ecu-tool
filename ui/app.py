@@ -26,6 +26,7 @@ Design constraints
 """
 
 import datetime
+import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
@@ -358,7 +359,6 @@ class ECUToolApp(tk.Tk):
             return
         try:
             self._dbc_decoder.load(path)
-            import os
             self._lbl_dbc.config(text=os.path.basename(path), fg="#2E7D32")
             self._log_append(f"DBC loaded: {path}")
         except (ImportError, ValueError, FileNotFoundError) as exc:

@@ -36,7 +36,7 @@ from decode.frame_record import DecodedFrame
 # Key: PGN (int).  Value: short human-readable name.
 # Subset of SAE J1939-71 covering PGNs commonly seen on automotive benches.
 
-J1939_PGN_NAMES: dict = {
+J1939_PGN_NAMES: dict[int, str] = {
     # Engine
     0x00F004: "EEC1 — Electronic Engine Controller 1",
     0x00F003: "EEC2 — Electronic Engine Controller 2",

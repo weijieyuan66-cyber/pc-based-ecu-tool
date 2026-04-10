@@ -34,7 +34,7 @@ Backend contract
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Union
 
 import can
 
@@ -119,7 +119,7 @@ class _SingleBusBackend(CANBackend):
     Not intended for direct use outside this package.
     """
 
-    def __init__(self, interface: str, channel, bitrate: int) -> None:
+    def __init__(self, interface: str, channel: Union[str, int], bitrate: int) -> None:
         self._interface = interface
         self._channel = channel
         self._bitrate = bitrate
