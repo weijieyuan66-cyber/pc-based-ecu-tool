@@ -66,7 +66,8 @@ class ECUToolApp(tk.Tk):
         super().__init__()
         self.title("PC-based ECU Tool — Release 1")
         self.resizable(True, True)
-        self.minsize(820, 600)
+        self.minsize(900, 760)
+        self.geometry("1100x860")
 
         self._logger = setup_logger("ecu_tool_ui")
         try:
@@ -260,7 +261,7 @@ class ECUToolApp(tk.Tk):
         tk.Label(self, text="Log", anchor="w").pack(fill=tk.X, padx=8)
         self._log_area = scrolledtext.ScrolledText(
             self,
-            height=6,
+            height=10,
             state=tk.DISABLED,
             font=("Courier", 9),
         )
