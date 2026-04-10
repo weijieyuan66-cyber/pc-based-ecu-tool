@@ -45,6 +45,7 @@ from decode.dbc_decoder import DBCDecoder
 from decode.frame_record import DecodedFrame
 from decode.j1939_decoder import J1939Decoder
 from rules.builtin_rules import create_default_rule_engine
+from validation.mock_validation_test import mock_validation_fault_hints, run_mock_validation_test
 from main import load_config
 
 DEFAULT_CONFIG_PATH = "config/settings.example.json"
@@ -183,7 +184,19 @@ class ECUToolApp(tk.Tk):
             activeforeground="white",
             command=self._on_run_self_test,
         )
-        self._btn_run.pack(side=tk.LEFT, padx=(0, 12), ipadx=10, ipady=4)
+        self._btn_run.pack(side=tk.LEFT, padx=(0, 8), ipadx=10, ipady=4)
+
+        self._btn_validate = tk.Button(
+            action_frame,
+            text="✔  Validate (Mock)",
+            font=("TkDefaultFont", 11, "bold"),
+            bg="#1565C0",
+            fg="white",
+            activebackground="#0D47A1",
+            activeforeground="white",
+            command=self._on_run_validation_test,
+        )
+        self._btn_validate.pack(side=tk.LEFT, padx=(0, 12), ipadx=10, ipady=4)
 
         self._lbl_status = tk.Label(action_frame, text="Ready", anchor="w")
         self._lbl_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -579,6 +592,90 @@ class ECUToolApp(tk.Tk):
         self._lbl_result.config(text="ERROR", fg="#C62828")
         self._lbl_status.config(text="Error — see log")
         self._btn_run.config(state=tk.NORMAL)
+        self._running = False
+
+    # ================================================================== #
+    # Mock validation test                                                  #
+    # ================================================================== #
+
+    def _on_run_validation_test(self) -> None:
+        """Trigger the mock validation test and display results."""
+        if self._running:
+            return
+        self._running = True
+        self._btn_validate.config(state=tk.DISABLED)
+        self._lbl_status.config(text="Running validation test ...")
+        self._lbl_result.config(text="--", fg="black")
+
+        # Clear only the Fault Hints tab for a fresh view of deviations.
+        for row in self._tree_faults.get_children():
+            self._tree_faults.delete(row)
+
+        self._log_clear()
+        self._log_append("Starting mock validation test ...")
+
+        threading.Thread(
+            target=self._validation_test_thread,
+            daemon=True,
+            name="ui-validation-test",
+        ).start()
+
+    def _validation_test_thread(self) -> None:
+        try:
+            summary = run_mock_validation_test()
+        except Exception as exc:
+            self.after(0, self._on_validation_error, str(exc))
+            return
+        self.after(0, self._on_validation_done, summary)
+
+    def _on_validation_done(self, summary) -> None:
+        from validation.validator import ExpectationValidator
+        hints = ExpectationValidator.to_fault_hints(summary.deviations)
+
+        self._log_append(
+            f"Validation scenario : '{summary.scenario_name}'"
+        )
+        self._log_append(
+            f"Total deviations    : {summary.total_deviations}"
+        )
+        for dtype, count in summary.by_type.items():
+            self._log_append(f"  {dtype}: {count}")
+
+        for hint in hints:
+            self._add_fault_row(hint)
+            self._logger.warning(
+                "[Validation] [%s] %s — %s",
+                hint.severity.upper(), hint.rule_id, hint.message,
+            )
+
+        if summary.passed:
+            self._lbl_result.config(text="PASS", fg="#2E7D32")
+            self._log_append("Result: PASS — no deviations detected.")
+        else:
+            self._lbl_result.config(
+                text=f"DEVIATIONS  ({summary.total_deviations})",
+                fg="#C62828",
+            )
+            self._log_append(
+                f"Result: FAIL — {summary.total_deviations} deviation(s) found."
+            )
+
+        self._lbl_status.config(
+            text=f"Validation done — {summary.total_deviations} deviation(s)"
+        )
+
+        # Update analysis context counters
+        self._analysis_fault_count += len(hints)
+        self._update_analysis_tab()
+
+        self._btn_validate.config(state=tk.NORMAL)
+        self._running = False
+
+    def _on_validation_error(self, message: str) -> None:
+        self._log_append(f"ERROR: {message}")
+        self._lbl_result.config(text="ERROR", fg="#C62828")
+        self._lbl_status.config(text="Validation error — see log")
+        self._btn_validate.config(state=tk.NORMAL)
         self._running = False
 
     # ================================================================== #
