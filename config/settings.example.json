@@ -1,10 +1,28 @@
 {
-  "interface": "virtual",
-  "channel": "test_channel",
+  "_comment": "Release 1 — multi-backend config. Copy to settings.json and edit as needed.",
+
+  "backend": "virtual",
+  "app_mode": "self_test_only",
+
   "bitrate": 500000,
   "fd_enabled": false,
   "rx_timeout_s": 1.0,
   "tx_frame_interval_s": 0.1,
-  "app_mode": "self_test_only",
-  "notes": "Virtual self-test configuration. To switch to real hardware, change interface and channel only."
+
+  "dbc_file": null,
+
+  "backends": {
+    "virtual": {
+      "channel": "test_channel"
+    },
+    "pcan": {
+      "channel": "PCAN_USBBUS1",
+      "bitrate": 500000
+    },
+    "vector": {
+      "channel": 0,
+      "bitrate": 500000,
+      "app_name": "ECUTool"
+    }
+  }
 }
