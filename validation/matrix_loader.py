@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # Internal parsing helpers
 # ---------------------------------------------------------------------------
 
-def _parse_int_or_hex(value) -> Optional[int]:
+def _parse_numeric_to_int(value) -> Optional[int]:
     """Return an int from a cell value that may be a hex string, int, or float."""
     if value is None or (isinstance(value, str) and value.strip() == ""):
         return None
@@ -265,7 +265,7 @@ class ExpectationMatrixLoader:
                 )
                 continue
 
-            expected_val = _parse_int_or_hex(d.get("expected_value"))
+            expected_val = _parse_numeric_to_int(d.get("expected_value"))
             if expected_val is None:
                 logger.warning(
                     "FieldConstraints row for '%s': missing expected_value — skipped.",
@@ -274,6 +274,9 @@ class ExpectationMatrixLoader:
                 continue
 
             byte_index_raw = d.get("byte_index")
+            # byte_index defaults to 0 when the column is blank or absent.
+            # This is the most common case (single-byte constraints on byte 0).
+            # Provide a non-zero value in the sheet to target a different byte.
             byte_index = int(byte_index_raw) if byte_index_raw not in (None, "") else 0
             signal_name = str(d.get("signal_name") or "field").strip()
 
@@ -315,7 +318,7 @@ class ExpectationMatrixLoader:
             if not msg_name:
                 continue  # skip blank rows
 
-            frame_id = _parse_int_or_hex(d.get("frame_id"))
+            frame_id = _parse_numeric_to_int(d.get("frame_id"))
             if frame_id is None:
                 logger.warning(
                     "Messages row %d ('%s'): missing or invalid frame_id — skipped.",
@@ -323,9 +326,11 @@ class ExpectationMatrixLoader:
                 )
                 continue
 
-            required = _parse_bool(d.get("required", True))
+            # A message is required only when the 'required' cell is explicitly
+            # set to yes/true/1.  Blank or absent defaults to False (not required).
+            required = _parse_bool(d.get("required"))
             sa_raw = d.get("expected_source_address")
-            expected_sa = _parse_int_or_hex(sa_raw)
+            expected_sa = _parse_numeric_to_int(sa_raw)
 
             cycle_ms = _parse_float(d.get("expected_cycle_time_ms"))
             tolerance_ms = _parse_float(d.get("cycle_tolerance_ms"))
