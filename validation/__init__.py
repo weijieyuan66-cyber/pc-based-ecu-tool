@@ -27,6 +27,10 @@ Public surface
   validator.py
       ExpectationValidator    -- stateful engine: feed frames → finalize
 
+  matrix_loader.py
+      ExpectationMatrixLoader -- load ExpectationSpec from an Excel workbook
+                                 at runtime (no code changes needed)
+
   mock_validation_test.py
       run_mock_validation_test()      -- standalone mock scenario runner
       mock_validation_fault_hints()   -- convenience wrapper for the UI

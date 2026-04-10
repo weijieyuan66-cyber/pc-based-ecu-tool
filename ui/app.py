@@ -46,6 +46,7 @@ from decode.frame_record import DecodedFrame
 from decode.j1939_decoder import J1939Decoder
 from rules.builtin_rules import create_default_rule_engine
 from validation.mock_validation_test import mock_validation_fault_hints, run_mock_validation_test
+from validation.specs import ExpectationSpec
 from main import load_config
 
 DEFAULT_CONFIG_PATH = "config/settings.example.json"
@@ -83,6 +84,10 @@ class ECUToolApp(tk.Tk):
         self._backend = None
         self._running = False
 
+        # ── expectation matrix state ─────────────────────────────────────
+        # Populated by Load Expectation Matrix… or by config auto-load.
+        self._loaded_matrix_spec: Optional[ExpectationSpec] = None
+
         # ── analysis reservation state ───────────────────────────────────
         # These counters are updated on every processed frame so that the
         # Analysis tab always shows an up-to-date context snapshot.
@@ -94,6 +99,7 @@ class ECUToolApp(tk.Tk):
         self._build_ui()
         self._sync_backend_ui()
         self._update_analysis_tab()
+        self._autoload_matrix_from_config()
 
     # ================================================================== #
     # UI construction                                                       #
@@ -168,6 +174,28 @@ class ECUToolApp(tk.Tk):
             dbc_frame,
             text="Load DBC …",
             command=self._on_load_dbc,
+        ).pack(side=tk.RIGHT, padx=6, pady=4)
+
+        # ── Expectation Matrix loader ────────────────────────────────────
+        em_frame = tk.Frame(self, bd=1, relief=tk.RIDGE)
+        em_frame.pack(fill=tk.X, **pad)
+
+        tk.Label(em_frame, text="Expectation Matrix:", font=("TkDefaultFont", 10)).pack(
+            side=tk.LEFT, padx=(6, 4), pady=4
+        )
+        self._lbl_matrix = tk.Label(
+            em_frame,
+            text="(none loaded — mock scenario will be used)",
+            anchor="w",
+            font=("Courier", 9),
+            fg="#555",
+        )
+        self._lbl_matrix.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=4)
+
+        tk.Button(
+            em_frame,
+            text="Load Expectation Matrix …",
+            command=self._on_load_matrix,
         ).pack(side=tk.RIGHT, padx=6, pady=4)
 
         # ── Action bar ───────────────────────────────────────────────────
@@ -526,6 +554,47 @@ class ECUToolApp(tk.Tk):
             self._log_append(f"[ERROR] DBC load failed: {exc}")
 
     # ================================================================== #
+    # Expectation Matrix loader                                            #
+    # ================================================================== #
+
+    def _on_load_matrix(self) -> None:
+        """Open a file dialog and load an Expectation Matrix from an Excel file."""
+        path = filedialog.askopenfilename(
+            title="Select Expectation Matrix (Excel)",
+            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        self._apply_matrix_from_path(path)
+
+    def _apply_matrix_from_path(self, path: str) -> None:
+        """Load an Expectation Matrix from *path* and update the UI status."""
+        try:
+            from validation.matrix_loader import ExpectationMatrixLoader
+            spec = ExpectationMatrixLoader.load(path)
+            self._loaded_matrix_spec = spec
+            msg_count = len(spec.messages)
+            self._lbl_matrix.config(
+                text=f"{os.path.basename(path)}  ({msg_count} message(s)  "
+                     f"scenario='{spec.scenario_name}')",
+                fg="#2E7D32",
+            )
+            self._log_append(
+                f"Expectation Matrix loaded: {path}  "
+                f"[{msg_count} message(s)  scenario='{spec.scenario_name}']"
+            )
+        except (ImportError, ValueError, FileNotFoundError, Exception) as exc:
+            self._log_append(f"[ERROR] Expectation Matrix load failed: {exc}")
+
+    def _autoload_matrix_from_config(self) -> None:
+        """If config contains expectation_matrix_path, load it silently at startup."""
+        path = self._config.get("expectation_matrix_path") or ""
+        if not path:
+            return
+        self._logger.info("Auto-loading Expectation Matrix from config: %s", path)
+        self._apply_matrix_from_path(str(path))
+
+    # ================================================================== #
     # Self-test                                                             #
     # ================================================================== #
 
@@ -599,7 +668,11 @@ class ECUToolApp(tk.Tk):
     # ================================================================== #
 
     def _on_run_validation_test(self) -> None:
-        """Trigger the mock validation test and display results."""
+        """Trigger the validation test and display results.
+
+        Uses the loaded Expectation Matrix if one has been loaded, otherwise
+        falls back to the built-in mock scenario.
+        """
         if self._running:
             return
         self._running = True
@@ -612,7 +685,13 @@ class ECUToolApp(tk.Tk):
             self._tree_faults.delete(row)
 
         self._log_clear()
-        self._log_append("Starting mock validation test ...")
+        if self._loaded_matrix_spec is not None:
+            self._log_append(
+                f"Starting validation using loaded matrix "
+                f"(scenario='{self._loaded_matrix_spec.scenario_name}') ..."
+            )
+        else:
+            self._log_append("Starting mock validation test (no matrix loaded) ...")
 
         threading.Thread(
             target=self._validation_test_thread,
@@ -622,7 +701,17 @@ class ECUToolApp(tk.Tk):
 
     def _validation_test_thread(self) -> None:
         try:
-            summary = run_mock_validation_test()
+            if self._loaded_matrix_spec is not None:
+                # Use the runtime-loaded matrix against mock frames.
+                from validation.mock_validation_test import build_mock_frames
+                from validation.validator import ExpectationValidator
+                validator = ExpectationValidator(self._loaded_matrix_spec)
+                for frame in build_mock_frames():
+                    validator.feed(frame)
+                summary = validator.finalize()
+            else:
+                # Fall back to built-in mock scenario.
+                summary = run_mock_validation_test()
         except Exception as exc:
             self.after(0, self._on_validation_error, str(exc))
             return

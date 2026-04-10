@@ -11,6 +11,8 @@
 
   "dbc_file": null,
 
+  "expectation_matrix_path": null,
+
   "backends": {
     "virtual": {
       "channel": "test_channel"
