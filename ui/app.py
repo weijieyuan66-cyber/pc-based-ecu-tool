@@ -261,7 +261,7 @@ class ECUToolApp(tk.Tk):
         tk.Label(self, text="Log", anchor="w").pack(fill=tk.X, padx=8)
         self._log_area = scrolledtext.ScrolledText(
             self,
-            height=10,
+            height=30,
             state=tk.DISABLED,
             font=("Courier", 9),
         )
