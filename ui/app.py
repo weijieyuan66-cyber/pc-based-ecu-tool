@@ -261,11 +261,11 @@ class ECUToolApp(tk.Tk):
         tk.Label(self, text="Log", anchor="w").pack(fill=tk.X, padx=8)
         self._log_area = scrolledtext.ScrolledText(
             self,
-            height=30,
+            height=10,
             state=tk.DISABLED,
             font=("Courier", 9),
         )
-        self._log_area.pack(fill=tk.BOTH, expand=False, padx=8, pady=(0, 8))
+        self._log_area.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
     def _build_raw_tab(self) -> None:
         columns = ("timestamp", "can_id", "dlc", "data", "flags")
