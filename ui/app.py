@@ -230,9 +230,16 @@ class ECUToolApp(tk.Tk):
         self._lbl_status = tk.Label(action_frame, text="Ready", anchor="w")
         self._lbl_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # ── Notebook tabs ────────────────────────────────────────────────
-        nb = ttk.Notebook(self)
-        nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 4))
+        # ── Vertical PanedWindow: upper = notebook+badge, lower = log ────
+        paned = tk.PanedWindow(self, orient=tk.VERTICAL, sashrelief=tk.RAISED, sashwidth=6)
+        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        # ── Upper pane (notebook + PASS/FAIL badge) ───────────────────────
+        upper_frame = tk.Frame(paned)
+        paned.add(upper_frame, stretch="always")
+
+        nb = ttk.Notebook(upper_frame)
+        nb.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
 
         self._tab_raw = tk.Frame(nb)
         self._tab_decoded = tk.Frame(nb)
@@ -250,22 +257,28 @@ class ECUToolApp(tk.Tk):
 
         # ── PASS / FAIL badge ────────────────────────────────────────────
         self._lbl_result = tk.Label(
-            self,
+            upper_frame,
             text="--",
             font=("TkDefaultFont", 16, "bold"),
             width=24,
         )
         self._lbl_result.pack(pady=(0, 4))
 
-        # ── Log area ─────────────────────────────────────────────────────
-        tk.Label(self, text="Log", anchor="w").pack(fill=tk.X, padx=8)
+        # ── Lower pane (log area) ─────────────────────────────────────────
+        lower_frame = tk.Frame(paned)
+        paned.add(lower_frame, minsize=120, stretch="never")
+
+        tk.Label(lower_frame, text="Log", anchor="w").pack(fill=tk.X)
         self._log_area = scrolledtext.ScrolledText(
-            self,
+            lower_frame,
             height=10,
             state=tk.DISABLED,
             font=("Courier", 9),
         )
-        self._log_area.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self._log_area.pack(fill=tk.BOTH, expand=True)
+
+        # Position the sash so the log pane is visibly taller after layout
+        self.after(100, lambda: paned.sash_place(0, 0, int(self.winfo_height() * 0.62)))
 
     def _build_raw_tab(self) -> None:
         columns = ("timestamp", "can_id", "dlc", "data", "flags")
